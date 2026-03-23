@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="Panel interactivo para consultar y descargar el histórico de tasas SOFR obtenidas directamente de la API oficial de FRED."/>
+  <title>SOFR Dashboard · Tasa diaria SOFR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+
+  <style>
+    /* ─── Design Tokens ─── */
+    :root {
+      --bg-base:    #050811;
+      --bg-glass:   rgba(255,255,255,0.04);
+      --bg-glass2:  rgba(255,255,255,0.07);
+      --border:     rgba(255,255,255,0.09);
+      --accent:     #3b82f6;
+      --accent-2:   #8b5cf6;
+      --accent-3:   #06b6d4;
+      --success:    #22c55e;
+      --warning:    #f59e0b;
+      --danger:     #ef4444;
+      --text-1:     #f1f5f9;
+      --text-2:     #94a3b8;
+      --text-3:     #475569;
+      --radius:     16px;
+      --radius-sm:  8px;
+      --shadow:     0 8px 32px rgba(0,0,0,0.5);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-1);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── Animated bg gradient ─── */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(59,130,246,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139,92,246,0.1) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 50% 50%, rgba(6,182,212,0.05) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── Layout ─── */
+    .shell {
+      position: relative;
+      z-index: 1;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 24px 64px;
+    }
+
+    /* ─── Header / Hero ─── */
+    header {
+      padding: 48px 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 4px 20px rgba(59,130,246,0.4);
+    }
+
+    .brand-text h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #fff 40%, var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .brand-text p {
+      font-size: 12px;
+      color: var(--text-2);
+      letter-spacing: 0.5px;
+      margin-top: 1px;
+    }
+
+    .header-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(34,197,94,0.12);
+      border: 1px solid rgba(34,197,94,0.25);
+      border-radius: 100px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: var(--success);
+      font-weight: 500;
+    }
+
+    .header-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.5; transform: scale(1.3); }
+    }
+
+    /* ─── Stat Cards ─── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .stat-card:hover { background: var(--bg-glass2); transform: translateY(-2px); }
+
+    .stat-card .label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 8px;
+    }
+
+    .stat-card .value {
+      font-size: 26px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -1px;
+    }
+
+    .stat-card .sub {
+      font-size: 12px;
+      color: var(--text-2);
+      margin-top: 4px;
+    }
+
+    .stat-card.accent-blue .value { color: var(--accent); }
+    .stat-card.accent-violet .value { color: var(--accent-2); }
+    .stat-card.accent-cyan .value { color: var(--accent-3); }
+    .stat-card.accent-green .value { color: var(--success); }
+
+    /* ─── Panel glass ─── */
+    .panel {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      backdrop-filter: blur(16px);
+      padding: 28px 32px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-1);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-title .tag {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 100px;
+      background: rgba(59,130,246,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(59,130,246,0.25);
+    }
+
+    /* ─── Chart canvas ─── */
+    .chart-wrapper {
+      position: relative;
+      height: 340px;
+    }
+
+    /* ─── Range buttons ─── */
+    .range-btns {
+      display: flex;
+      gap: 6px;
+    }
+
+    .range-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-2);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+
+    .range-btn:hover,
+    .range-btn.active {
+      background: rgba(59,130,246,0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ─── Action buttons ─── */
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 12px 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(59,130,246,0.4);
+    }
+
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(59,130,246,0.55); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-secondary {
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      color: var(--text-1);
+    }
+
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); transform: translateY(-1px); }
+    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-green {
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      color: #fff;
+      box-shadow: 0 4px 18px rgba(34,197,94,0.35);
+    }
+
+    .btn-green:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(34,197,94,0.5); }
+    .btn-green:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ─── Spinner inside button ─── */
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Log console ─── */
+    .console {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      color: #a3e635;
+      padding: 16px 20px;
+      min-height: 72px;
+      max-height: 200px;
+      overflow-y: auto;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .console .line-prompt { color: var(--text-3); }
+    .console .line-ok     { color: #4ade80; }
+    .console .line-err    { color: #f87171; }
+    .console .line-info   { color: #60a5fa; }
+    .console.hidden { display: none; }
+
+    /* ─── Table ─── */
+    .table-wrap {
+      overflow-x: auto;
+      max-height: 360px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: rgba(255,255,255,0.06);
+      color: var(--text-2);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      padding: 12px 18px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    tbody tr {
+      border-top: 1px solid rgba(255,255,255,0.04);
+      transition: background 0.15s;
+    }
+
+    tbody tr:hover { background: rgba(255,255,255,0.035); }
+
+    tbody td {
+      padding: 10px 18px;
+      color: var(--text-1);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    tbody td.date-cell { color: var(--text-2); }
+
+    .change-pos { color: var(--success); }
+    .change-neg { color: var(--danger); }
+    .change-neu { color: var(--text-3); }
+
+    /* ─── Empty / Loading state ─── */
+    .empty-state {
+      text-align: center;
+      padding: 64px 0;
+      color: var(--text-3);
+    }
+
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state p     { font-size: 14px; color: var(--text-2); }
+
+    /* ─── Notification toast ─── */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      background: var(--bg-glass2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      backdrop-filter: blur(20px);
+      padding: 14px 20px;
+      font-size: 13.5px;
+      font-weight: 500;
+      max-width: 340px;
+      box-shadow: var(--shadow);
+      transform: translateY(20px);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(.34,1.56,.64,1);
+      z-index: 999;
+    }
+
+    #toast.show  { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    #toast.ok    { border-color: rgba(34,197,94,0.4); color: var(--success); }
+    #toast.error { border-color: rgba(239,68,68,0.4); color: var(--danger); }
+    #toast.info  { border-color: rgba(59,130,246,0.4); color: var(--accent); }
+
+    /* ─── Footer ─── */
+    footer {
+      text-align: center;
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-3);
+    }
+
+    footer span { color: var(--text-2); }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 640px) {
+      .shell { padding: 0 16px 48px; }
+      header { padding: 28px 0 18px; }
+      .panel { padding: 20px 18px; }
+      .chart-wrapper { height: 260px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">📈</div>
+      <div class="brand-text">
+        <h1>SOFR Dashboard</h1>
+        <p>Secured Overnight Financing Rate · FRED API</p>
+      </div>
+    </div>
+    <div class="header-badge">
+      <span class="dot"></span>
+      Datos en tiempo real
+    </div>
+  </header>
+
+  <!-- ── KPI Cards ── -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card accent-blue">
+      <div class="label">Último valor</div>
+      <div class="value" id="kpi-last">—</div>
+      <div class="sub" id="kpi-date">Sin datos</div>
+    </div>
+    <div class="stat-card accent-violet">
+      <div class="label">Máximo histórico</div>
+      <div class="value" id="kpi-max">—</div>
+      <div class="sub">All-time high</div>
+    </div>
+    <div class="stat-card accent-cyan">
+      <div class="label">Mínimo histórico</div>
+      <div class="value" id="kpi-min">—</div>
+      <div class="sub">All-time low</div>
+    </div>
+    <div class="stat-card accent-green">
+      <div class="label">Promedio</div>
+      <div class="value" id="kpi-avg">—</div>
+      <div class="sub">Media total</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Registros</div>
+      <div class="value" id="kpi-rows" style="color:var(--text-1)">—</div>
+      <div class="sub">Observaciones</div>
+    </div>
+  </div>
+
+  <!-- ── Actions ── -->
+  <div class="actions">
+    <button class="btn btn-primary" id="btnUpdate" onclick="triggerUpdate()">
+      <span class="spinner" id="updateSpinner"></span>
+      <span id="updateLabel">⟳ &nbsp;Actualizar datos</span>
+    </button>
+    <button class="btn btn-green" id="btnDownload" onclick="downloadExcel()" disabled>
+      ⬇ &nbsp;Descargar Excel
+    </button>
+    <button class="btn btn-secondary" id="btnRefresh" onclick="loadData()">
+      ↺ &nbsp;Refrescar gráfico
+    </button>
+  </div>
+
+  <!-- ── Console log ── -->
+  <div class="panel" id="consolePanel" style="display:none; margin-top:-4px; margin-bottom:24px; padding: 20px 24px;">
+    <div class="panel-header" style="margin-bottom:12px;">
+      <div class="panel-title">📟 Log de ejecución</div>
+      <button class="btn btn-secondary" style="padding:6px 12px; font-size:12px;" onclick="hideConsole()">Cerrar</button>
+    </div>
+    <div class="console" id="consoleOut">Esperando ejecución…</div>
+  </div>
+
+  <!-- ── Chart Panel ── -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        Histórico SOFR
+        <span class="tag">% anual</span>
+      </div>
+      <div class="range-btns">
+        <button class="range-btn" id="r3m"  onclick="setRange(90,  this)">3M</button>
+        <button class="range-btn" id="r6m"  onclick="setRange(180, this)">6M</button>
+        <button class="range-btn" id="r1y"  onclick="setRange(365, this)">1A</button>
+        <button class="range-btn" id="r3y"  onclick="setRange(1095,this)">3A</button>
+        <button class="range-btn active" id="rAll" onclick="setRange(0, this)">Todo</button>
+      </div>
+    </div>
+
+    <div id="chartEmpty" class="empty-state">
+      <div class="icon">📊</div>
+      <p>Presiona <strong>Actualizar datos</strong> para cargar el histórico SOFR.</p>
+    </div>
+
+    <div class="chart-wrapper" id="chartWrapper" style="display:none;">
+      <canvas id="sofrChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Table Panel ── -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Tabla de datos <span class="tag" id="tableCount">0 filas</span></div>
+    </div>
+    <div id="tableEmpty" class="empty-state">
+      <div class="icon">🗂️</div>
+      <p>Sin datos todavía.</p>
+    </div>
+    <div class="table-wrap" id="tableWrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Fecha</th>
+            <th>SOFR (%)</th>
+            <th>Variación</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+
+<!-- ── Footer ── -->
+<footer>
+  Datos obtenidos desde la <span>API oficial de FRED</span> · Federal Reserve Bank of St. Louis ·
+  Proyecto técnico SOFR © <span id="year"></span>
+</footer>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<!-- ═══════════════════ JavaScript ═══════════════════ -->
+<script>
+  /* ── State ── */
+  const BASE      = "";
+  let allDates    = [];
+  let allValues   = [];
+  let sofrChart   = null;
+  let pollTimer   = null;
+  let currentRange = 0; // 0 = all
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  /* ── Toast ── */
+  function showToast(msg, type = "info", ms = 3500) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className   = `show ${type}`;
+    clearTimeout(t._to);
+    t._to = setTimeout(() => t.className = "", ms);
+  }
+
+  /* ── Hide console ── */
+  function hideConsole() {
+    document.getElementById("consolePanel").style.display = "none";
+  }
+
+  /* ── Actualizar datos ── */
+  async function triggerUpdate() {
+    const btn     = document.getElementById("btnUpdate");
+    const spinner = document.getElementById("updateSpinner");
+    const label   = document.getElementById("updateLabel");
+
+    btn.disabled   = true;
+    spinner.style.display = "inline-block";
+    label.textContent     = "Conectando con FRED…";
+
+    document.getElementById("consolePanel").style.display = "block";
+    document.getElementById("consoleOut").textContent      = "► Iniciando actualización…\n";
+
+    showToast("Iniciando actualización de datos SOFR…", "info");
+
+    try {
+      const res = await fetch(`${BASE}/api/update`, { method: "POST" });
+      const json = await res.json();
+      if (json.status === "already_running") {
+        showToast("Ya hay una actualización en curso.", "info");
+      }
+      startPolling();
+    } catch (e) {
+      showToast("Error de conexión con el servidor.", "error");
+      resetBtn();
+    }
+  }
+
+  /* ── Poll status ── */
+  function startPolling() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const res  = await fetch(`${BASE}/api/status`);
+        const json = await res.json();
+
+        if (json.log && json.log.length) {
+          document.getElementById("consoleOut").textContent =
+            json.log.map(l => `► ${l}`).join("\n") + "\n";
+        }
+
+        if (!json.running) {
+          clearInterval(pollTimer);
+          if (json.error) {
+            showToast("Error: " + json.error, "error", 6000);
+            document.getElementById("consoleOut").textContent += `\n✗ ERROR: ${json.error}`;
+          } else {
+            showToast("¡Datos actualizados correctamente!", "ok");
+            document.getElementById("consoleOut").textContent += "\n✔ Actualización completada.";
+            await loadData();
+          }
+          resetBtn();
+        }
+      } catch (e) {
+        clearInterval(pollTimer);
+        resetBtn();
+      }
+    }, 900);
+  }
+
+  function resetBtn() {
+    const btn     = document.getElementById("btnUpdate");
+    const spinner = document.getElementById("updateSpinner");
+    const label   = document.getElementById("updateLabel");
+    btn.disabled          = false;
+    spinner.style.display = "none";
+    label.innerHTML       = "⟳ &nbsp;Actualizar datos";
+  }
+
+  /* ── Cargar datos y renderizar ── */
+  async function loadData() {
+    try {
+      const res  = await fetch(`${BASE}/api/data`);
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.error) return;
+
+      allDates  = json.dates;
+      allValues = json.values;
+
+      updateKPIs(json.stats);
+      renderChart(currentRange);
+      renderTable();
+
+      document.getElementById("btnDownload").disabled = false;
+    } catch (_) {}
+  }
+
+  /* ── KPIs ── */
+  function updateKPIs(s) {
+    document.getElementById("kpi-last").textContent = `${s.last_value}%`;
+    document.getElementById("kpi-date").textContent = `Dato al ${s.last_date}`;
+    document.getElementById("kpi-max").textContent  = `${s.max_value}%`;
+    document.getElementById("kpi-min").textContent  = `${s.min_value}%`;
+    document.getElementById("kpi-avg").textContent  = `${s.avg_value}%`;
+    document.getElementById("kpi-rows").textContent = s.total_rows.toLocaleString();
+  }
+
+  /* ── Rango ── */
+  function setRange(days, el) {
+    document.querySelectorAll(".range-btn").forEach(b => b.classList.remove("active"));
+    el.classList.add("active");
+    currentRange = days;
+    renderChart(days);
+  }
+
+  /* ── Chart.js ── */
+  function renderChart(days) {
+    if (!allDates.length) return;
+
+    let dates  = allDates;
+    let values = allValues;
+
+    if (days > 0) {
+      const cutoff = allDates.length - days;
+      dates  = allDates.slice(Math.max(0, cutoff));
+      values = allValues.slice(Math.max(0, cutoff));
+    }
+
+    document.getElementById("chartEmpty").style.display   = "none";
+    document.getElementById("chartWrapper").style.display = "block";
+
+    const ctx = document.getElementById("sofrChart").getContext("2d");
+
+    // Gradient fill
+    const grad = ctx.createLinearGradient(0, 0, 0, 340);
+    grad.addColorStop(0,   "rgba(59,130,246,0.22)");
+    grad.addColorStop(0.7, "rgba(59,130,246,0.03)");
+    grad.addColorStop(1,   "rgba(59,130,246,0)");
+
+    if (sofrChart) sofrChart.destroy();
+
+    sofrChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: dates,
+        datasets: [{
+          label: "SOFR (%)",
+          data:  values,
+          fill:  true,
+          backgroundColor: grad,
+          borderColor: "#3b82f6",
+          borderWidth: 2,
+          pointRadius: dates.length < 80 ? 3 : 0,
+          pointHoverRadius: 5,
+          pointBackgroundColor: "#3b82f6",
+          tension: 0.35,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "rgba(5,8,17,0.92)",
+            titleColor: "#94a3b8",
+            bodyColor: "#f1f5f9",
+            borderColor: "rgba(255,255,255,0.09)",
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: ctx => ` ${ctx.parsed.y.toFixed(4)}%`
+            }
+          },
+          zoom: {
+            zoom:  { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+            pan:   { enabled: true, mode: "x" }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: "#475569",
+              maxTicksLimit: 10,
+              font: { family: "Inter", size: 11 }
+            },
+            grid: { color: "rgba(255,255,255,0.04)" }
+          },
+          y: {
+            ticks: {
+              color: "#475569",
+              callback: v => `${v}%`,
+              font: { family: "JetBrains Mono", size: 11 }
+            },
+            grid: { color: "rgba(255,255,255,0.06)" }
+          }
+        }
+      }
+    });
+  }
+
+  /* ── Table ── */
+  function renderTable() {
+    const tbody = document.getElementById("tableBody");
+    tbody.innerHTML = "";
+
+    const rev_dates  = [...allDates].reverse();
+    const rev_values = [...allValues].reverse();
+
+    document.getElementById("tableCount").textContent = `${rev_dates.length.toLocaleString()} filas`;
+
+    if (!rev_dates.length) {
+      document.getElementById("tableEmpty").style.display = "block";
+      document.getElementById("tableWrap").style.display  = "none";
+      return;
+    }
+
+    document.getElementById("tableEmpty").style.display = "none";
+    document.getElementById("tableWrap").style.display  = "block";
+
+    // Show only first 500 rows for performance
+    const limit = Math.min(rev_dates.length, 500);
+    for (let i = 0; i < limit; i++) {
+      const curr = rev_values[i];
+      const prev = rev_values[i + 1];
+      let chg = "—", cls = "change-neu";
+
+      if (prev !== undefined) {
+        const diff = (curr - prev).toFixed(4);
+        if      (diff > 0) { chg = `+${diff}%`; cls = "change-pos"; }
+        else if (diff < 0) { chg = `${diff}%`;  cls = "change-neg"; }
+        else                { chg = `0.0000%`;   cls = "change-neu"; }
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="date-cell">${i + 1}</td>
+        <td class="date-cell">${rev_dates[i]}</td>
+        <td>${curr.toFixed(4)}%</td>
+        <td class="${cls}">${chg}</td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  /* ── Download Excel (Fetch + Blob → nombre garantizado) ── */
+  async function downloadExcel() {
+    showToast("Preparando descarga…", "info", 2000);
+    try {
+      const res = await fetch(`${BASE}/api/download`);
+      if (!res.ok) { showToast("Error al descargar el archivo.", "error"); return; }
+
+      // Leer el nombre desde el header que el servidor envía explícitamente
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const headerName  = res.headers.get("X-Filename");
+      const today       = new Date().toISOString().slice(0,10).replace(/-/g,"");
+      const fallback    = `historico_sofr_${today}.xlsx`;
+
+      // Extraer el nombre del header Content-Disposition (si viene)
+      let fname = fallback;
+      const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)/i);
+      if (match) fname = decodeURIComponent(match[1]);
+      if (headerName) fname = headerName;   // X-Filename tiene prioridad
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast(`✔ Descargado: ${fname}`, "ok");
+    } catch (e) {
+      showToast("Error de red al descargar.", "error");
+    }
+  }
+
+  /* ── Init: try to load existing data on page load ── */
+  loadData();
+</script>
+</body>
+</html>
