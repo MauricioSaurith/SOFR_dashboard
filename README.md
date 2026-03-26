@@ -46,33 +46,6 @@ pip install -r requirements.txt
 python app.py
 ```
 
-### 3. Abrir en el navegador
-**http://localhost:5000**
-
-> El archivo `.env` ya incluye la clave de API configurada.
-
----
-
-## ☁️ Despliegue en Vercel
-
-### 1. Subir a GitHub
-```bash
-git init
-git add .
-git commit -m "SOFR Dashboard"
-git remote add origin https://github.com/tu-usuario/get_sofr.git
-git push -u origin main
-```
-
-### 2. Importar en Vercel
-1. Ir a [vercel.com](https://vercel.com) → **Add New Project**
-2. Seleccionar el repositorio `get_sofr`
-3. Antes de hacer Deploy → ir a **Environment Variables**
-4. Agregar: `FRED_API_KEY` = `tu_clave_de_fred`
-5. Click en **Deploy**
-
-> La clave nunca es visible en el código de GitHub. Solo existe dentro de Vercel de forma segura.
-
 ---
 
 ## 🖥️ Funcionalidades del Dashboard
